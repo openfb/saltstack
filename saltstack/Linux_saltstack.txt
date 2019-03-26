@@ -1,0 +1,1770 @@
+SaltStack简介
+
+	SaltStack是一个服务器基础架构集中化管理平台，具备配置管理、远程执行、监控等功能，一般可以理解为简化版的puppet和加强版的func
+	SaltStack基于Python语言实现，结合轻量级消息队列（ZeroMQ）与Python第三方模块（Pyzmq、PyCrypto、Pyjinjia2、python-msgpack和PyYAML等）构建。
+	
+	通过部署SaltStack环境，我们可以在成千上万台服务器上做到批量执行命令，根据不同业务特性进行配置集中化管理、分发文件、采集服务器数据、操作系统基础及软件包管理等，SaltStack是运维人员提高工作效率、规范业务配置与操作的利器。
+
+
+特性
+
+	1) 部署简单、方便；
+	2) 支持大部分UNIX/Linux及Windows环境；
+	3) 主从集中化管理；
+	4) 配置简单、功能强大、扩展性强；
+	5) 主控端（master）和被控端（minion）基于证书认证，安全可靠；
+	6) 支持API及自定义模块，可通过Python轻松扩展。	
+	
+
+Master与Minion认证
+
+	1) minion在第一次启动时，会在/etc/salt/pki/minion/(该路径在/etc/salt/minion里面设置)下自动生成minion.pem(private key)和 minion.pub(public key)，然后将 minion.pub发送给master。
+	
+	2) master在接收到minion的public key后，通过salt-key命令accept minion public key，这样在master的/etc/salt/pki/master/minions下的将会存放以minion id命名的 public key，然后master就能对minion发送指令了。	
+	
+	
+salt-master的端口：
+
+	4505：为salt的消息发布专用端口
+	4506：为客户端与服务端通信的端口
+
+
+
+	
+	
+SaltStack的安装与启动
+
+环境描述：
+	192.168.122.101	salt-master.linux.com		
+	192.168.122.102	node1.linux.com 
+	192.168.122.103	node2.linux.com 
+
+准备工作：
+
+	SELinux, firewalld, 时间同步, 主机名 
+	在所有minion端配置master的主机名解析
+	
+
+1) 可通过以下两种方式安装SaltStack
+
+方法1：EPEL源
+
+在主机能够联网的情况下，通过在主机安装EPEL源安装
+
+salt master安装：
+
+# yum install -y epel-release
+# yum install -y salt-master 
+
+salt minion安装：
+
+# yum install -y epel-release
+# yum install -y salt-minion 
+	
+	
+方法2：配置本地yum源进行安装  
+
+salt master端：
+
+[root@salt-master ~]# yum install -y salt-master	
+	
+salt minion端：	
+	
+[root@salt-master ~]# yum install -y salt-minion
+
+	
+2) 分别在salt minion端(node1和node2)编辑其配置文件，指定master主机及自身的ID信息 
+
+[root@node1 ~]# vim /etc/salt/minion 
+
+	master: salt-master.linux.com
+	
+	
+	
+3) 启动salt-master服务 
+
+[root@salt-master ~]# systemctl start salt-master
+[root@salt-master ~]# systemctl enable salt-master
+Created symlink from /etc/systemd/system/multi-user.target.wants/salt-master.service to /usr/lib/systemd/system/salt-master.service.
+[root@salt-master ~]# 
+[root@salt-master ~]# 
+[root@salt-master ~]# ss -antp | grep salt
+LISTEN     0      100          *:4505                     *:*                   users:(("salt-master",pid=2203,fd=13))
+LISTEN     0      100          *:4506                     *:*                   users:(("salt-master",pid=2215,fd=21))
+[root@salt-master ~]# 
+
+
+
+4) 在minion端启动salt-minion服务 
+
+[root@node01 ~]# systemctl start salt-minion
+[root@node01 ~]# systemctl enable salt-minion.service 
+Created symlink from /etc/systemd/system/multi-user.target.wants/salt-minion.service to /usr/lib/systemd/system/salt-minion.service.
+
+	
+5) 在salt-master端通过salt-key指令查看minion的证书申请，并通过  
+
+[root@salt-master ~]# salt-key -L
+Accepted Keys:
+Denied Keys:
+Unaccepted Keys:
+node01.linux.com
+node02.linux.com
+Rejected Keys:
+
+[root@salt-master ~]# salt-key -A -y   
+The following keys are going to be accepted:
+Unaccepted Keys:
+node01.linux.com
+node02.linux.com
+Key for minion node01.linux.com accepted.
+Key for minion node02.linux.com accepted.
+
+
+[root@salt-master ~]# salt-key -L
+Accepted Keys:
+node01.linux.com
+node02.linux.com
+Denied Keys:
+Unaccepted Keys:
+Rejected Keys:
+
+	
+参数说明：
+
+salt-key用于管理minion端的证书信息，常用选项如下：
+
+	-L			用于查看所有minion端的证书信息
+	
+	-a <arg>	用于同意指定minion端的证书
+	-A 			用于同意所有minion端的证书
+	
+	-r <arg>	用于拒绝指定minion端的证书
+	-R			用于拒绝所有minion端的证书
+	
+	-d <arg>	用于删除指定minion端的证书
+	-D			用于删除所有minion端的证书
+	
+	-y			类似于yum中的-y选项
+
+	通过salt-key --help可获取更多的帮助信息
+
+	
+6) 通过test模块中的ping指令测试通信
+
+[root@salt-master ~]# salt '*' test.ping
+node2.linux.com:
+    True
+node1.linux.com:
+    True	
+
+
+[root@master ~]# salt '*' cmd.run 'getenforce'
+node1.linux.com:
+    Disabled
+node2.linux.com:
+    Disabled
+[root@master ~]# 	
+	
+
+	
+	
+	
+
+示例1：minion修改主机名
+
+minion端已经向master端注册过后，如果要修改minion端的主机名，则需要首先在master端删除该minion的key，再将minion端的/etc/salt/minion_id及pki目录删除(因为这两个文件中记录的信息都与主机名有关，一旦主机名变化后，必须重新生成这两个文件，否则minion端的服务会自动关闭)，再手动修改客户端主机名
+
+示例：修改node1.linux.com的主机名为agent1.linux.com 
+
+1) 在master端删除node1.linux.com 
+
+[root@salt-master ~]# salt-key -d node01.linux.com -y
+Deleting the following keys:
+Accepted Keys:
+node01.linux.com
+Key for minion node01.linux.com deleted.
+
+[root@salt-master ~]# salt-key -L
+Accepted Keys:
+node02.linux.com
+Denied Keys:
+Unaccepted Keys:
+Rejected Keys:
+
+	
+2) 删除minion端的相关的文件 
+
+[root@node1 ~]# cd /etc/salt/
+[root@node1 salt]# rm -rf minion_id pki/	
+	
+[root@node01 ~]# hostnamectl set-hostname agent01.linux.com
+
+[root@agent01 ~]# systemctl restart salt-minion
+
+	
+	
+3) 在master端再次通过该minion的证书
+
+[root@salt-master ~]# salt-key -a agent01.linux.com -y
+The following keys are going to be accepted:
+Unaccepted Keys:
+agent01.linux.com
+Key for minion agent01.linux.com accepted.
+
+[root@salt-master ~]# salt-key -L
+Accepted Keys:
+agent01.linux.com
+node02.linux.com
+Denied Keys:
+Unaccepted Keys:
+Rejected Keys:
+[root@salt-master ~]# 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+基本sls状态文件使用
+
+1) 在/salt/master文件中启动base状态目录
+
+[root@master salt]# vim /etc/salt/master 
+file_roots:
+  base:
+    - /srv/salt	
+
+
+2) 定义状态文件 
+
+[root@master salt]# mkdir /srv/salt/
+
+[root@master salt]# cat /srv/salt/apache.sls 				>>>定义状态文件 
+apache-service:
+  pkg.installed:
+    - names:
+      - httpd
+      - mod_ssl
+  service.running:
+    - name: httpd
+    - enable: True
+
+	
+[root@master salt]# cat /srv/salt/top.sls 					>>>定义状态文件与Target的关系 
+base: 
+  '*':
+    - apache
+[root@master salt]# 
+
+
+3) 执行状态文件 
+
+[root@master salt]# salt '*' state.highstate
+
+
+
+
+
+示例：无top.sls文件时执行状态文件  
+
+[root@salt-master salt]# cat /srv/salt/ftp.sls 
+ftp-service:
+  pkg.installed:
+    - name: vsftpd
+  service.running:
+    - name: vsftpd
+    - enable: True
+
+[root@salt-master salt]# salt '*' state.sls ftp
+	
+	
+	
+
+=====================top.sls匹配主机两种写法=========================================
+测试的操作：
+
+test_action:
+   cmd.run:
+     - name: hostname
+
+
+
+1、通过Grains值匹配主机
+
+写法1)
+
+[root@salt-master salt]# cat top.sls 
+base:
+  'G@os:CentOS':
+    - test
+
+
+写法2)
+
+[root@salt-master salt]# cat top.sls 
+base:
+  'os:CentOS':
+    - match: grain
+    - test
+
+
+2、通过Pillar值匹配主机
+
+
+写法1):
+
+[root@salt-master salt]# cat top.sls 
+base:
+  'I@a:10':
+    - test
+
+
+写法2):
+
+[root@salt-master salt]# cat top.sls 
+base:
+  'a:10':
+    - match: pillar
+    - test
+
+	
+3、通过网段匹配主机
+
+写法1) 
+
+[root@salt-master salt]# cat top.sls 
+base:
+  'S@192.168.122.0/24':
+      - test
+
+	
+写法2)
+
+[root@salt-master salt]# cat top.sls 
+base:
+  '192.168.122.0/24':
+    - match: ipcidr
+    - test
+
+
+4、通过正则表达式匹配主机 
+
+写法1) 
+
+[root@salt-master salt]# cat top.sls 
+base:
+  'E@^node':
+    - test
+
+	
+写法2) 
+
+[root@salt-master salt]# cat top.sls 
+base:
+  '^node':
+    - match: pcre
+    - test
+
+
+5、通过列表匹配主机
+
+写法1) 
+
+[root@salt-master salt]# cat top.sls 
+base:
+  'L@node02.linux.com,agent01.linux.com':
+    - test
+	
+写法2)
+
+[root@salt-master salt]# cat top.sls 
+base:
+  'node02.linux.com,agent01.linux.com':
+    - match: list
+    - test
+
+
+6、复合条件
+
+写法1)
+
+base:
+  'E@^node or I@a:10':
+    - test
+	
+
+7、以正则表达式匹配grains值
+
+   'os:(RedHat|CentOS)':
+        - match: grain_pcre
+        - repos.epel
+		
+		
+		
+=====================================================================================
+
+	
+	
+	
+
+
+	
+	
+	
+saltstack命令的使用
+
+1、核心命令 salt 
+
+Usage: salt [options] '<target>' <function> [arguments]	
+	
+	target用于代表对哪些minion进行操作，可采用如下匹配方式：
+	
+		-E 	正则表达式
+		
+			[root@slat-master ~]# salt -E 'node' test.ping
+			node2.linux.com:
+			True
+			
+		
+		-L 	列表的方式【写多个主机】
+		
+			[root@slat-master ~]# salt -L 'node2.linux.com' test.ping
+			node2.linux.com:
+			True
+			
+			[root@slat-master ~]# salt -L 'agent1.linux.com, node2.linux.com' test.ping
+		
+		-S  IP网段的方式
+		
+			[root@slat-master ~]# salt -S '192.168.0.0/24' test.ping
+			node2.linux.com:
+			True
+			agent1.linux.com:
+			True
+	
+	
+		-N <grp_name>		以组的方式调用target
+		
+			[root@slat-master ~]# salt -N group1 test.ping
+			
+			组需要在/etc/salt/master事先定义 
+			
+			# vim /etc/salt/master 
+			nodegroups:
+				group1: 'L@agent1.linux.com,node2.linux.com'
+	
+	
+		-C <target>			复合条件    and or 
+		
+			[root@slat-master ~]# salt -C 'L@node2.linux.com or E@agent' test.ping
+		
+			
+		-G 		使用minion端的Grains值，以键值对的方式组成条件
+		
+			[root@slat-master ~]# salt -G 'os:CentOS' test.ping
+	
+
+
+
+
+
+
+
+
+
+	
+Grains介绍 
+
+	Grains是SaltStack中的一个数据组件。
+	Grains是SaltStack记录minions端静态属性信息的一个组件，比如记录minios端的CPU, BIOS，OS信息等；
+	
+	通过以下命令可查看某个minion端的属性信息 
+	
+	[root@slat-master ~]# salt 'agent1.linux.com' grains.items
+		
+	minion端的Grains信息是在minion启动时汇报给master的 
+	
+	Grains用法说明：
+	
+	1) 列出minion端grains键的名称 
+	
+	[root@slat-master ~]# salt 'agent1.linux.com' grains.ls				
+	
+	2) 获取某个键所对应的值  
+	
+	[root@slat-master ~]# salt 'agent1.linux.com' grains.get biosversion
+	agent1.linux.com:
+    6.00
+	
+	[root@slat-master ~]# salt 'agent1.linux.com' grains.get os
+	agent1.linux.com:
+	CentOS
+	
+	[root@slat-master ~]# salt 'agent1.linux.com' grains.item os
+	agent1.linux.com:
+    ----------
+    os:
+        CentOS
+	
+	3) 判断某个键是否存在值 
+	[root@slat-master ~]# salt 'agent1.linux.com' grains.has_value biosversion
+	agent1.linux.com:
+    True
+	
+	关于grains的更多用法可使用# salt 'agent1.linux.com' sys.list_functions grains命令获取
+	
+	关于某个方法的具体应用可使用# salt 'agent1.linux.com' sys.doc grains.get命令获取，这是获取grains.get方法的使用
+	
+	
+
+根据用户需求，也可以自定义Grains值，定义的方法有如下三种方法：
+
+1) 在minion端配置文件中定义
+
+示例：
+
+(1) 在minion端定义两种Grains，名称分别为roles和deployment
+
+[root@agent1 minion.d]# cat /etc/salt/minion.d/grains.conf (YAML语法)
+grains: 
+  roles: 
+     - webserver
+     - memserver
+  deployment: datacent2
+
+[root@agent1 minion.d]# /etc/init.d/salt-minion restart
+
+(2) 在master端测试获取roles的值 
+
+[root@slat-master ~]# salt 'agent1.linux.com' grains.item roles
+agent1.linux.com:
+    ----------
+    roles:
+        - webserver
+        - memserver
+
+
+
+2) 在master端通过Grains模块定义
+
+(1) 通过grains.append方法定义键为ipkey,对应的值为192.168.122.102 
+
+[root@slat-master ~]# salt 'agent1.linux.com' grains.append ipkey 192.168.122.102
+agent1.linux.com:
+    ----------
+    ipkey:
+        - 192.168.122.102
+		
+[root@slat-master ~]# salt 'agent1.linux.com' grains.item ipkey 				>>>获取该键值  
+agent1.linux.com:
+    ----------
+    ipkey:
+        - 192.168.122.102
+
+[root@slat-master ~]# salt -G 'ipkey:192.168.122.102' test.ping					>>>通过自定义grains信息，调用target 
+agent1.linux.com:
+    True
+
+
+(2) 通过grains.setvals方法同时定义多个grains
+
+[root@slat-master ~]# salt 'agent1.linux.com' grains.setvals "{'key1': 'agent1', 'key2': 'linux'}"
+agent1.linux.com:
+    ----------
+    key1:
+        agent1
+    key2:
+        linux
+		
+[root@slat-master ~]# salt 'agent1.linux.com' grains.item key2
+agent1.linux.com:
+    ----------
+    key2:
+        linux
+
+		
+(3) 删除自定义grains
+
+[root@slat-master ~]# salt 'agent1.linux.com'  grains.delval key2		
+
+
+3) 通过Python脚本定义 
+
+
+
+
+
+
+
+
+
+Pillar数据管理中心
+
+	Pillar也是SaltStack的一个组件，是数据管理中心。我们经常配合states在大规模的配置管理工作中使用它，Pillar在SaltStack中主要的作用就是存储和定义配置管理中需要的一些数据，比如软件版本号、用户名、密码等信息，它的定义存储格式跟Grains类似，都是YAML格式；
+	需要在master端定义
+	
+	
+示例：
+
+1) 在master端的配置文件中有如下内容
+
+#pillar_roots:
+#  base:
+#    - /srv/pillar
+
+这段内容是定义Pillar相关文件的存放目录，由些，下面演示一个例子通过Pillar定义zabbix相关的属性信息 
+
+[root@slat-master pillar]# mkdir /srv/pillar
+[root@slat-master pillar]# cat /srv/pillar/top.sls 					>>>创建Pillar核心文件
+base:				
+  '*':					>>>用于指定minion端名称, target
+     - packages			>>>表示调用/srv/pillar目录下的packages.sls文件；或者调用/srv/pillar/packages目录下的init.sls文件
+     - services			>>>表示调用/srv/pillar目录下的services.sls文件；或者调用/srv/pillar/services目录下的init.sls文件
+
+
+2) 下面分别是packages、services文件的内容
+
+[root@slat-master pillar]# cat /srv/pillar/packages/init.sls 
+
+package-name: zabbix
+version: 4.2.2
+  
+[root@slat-master pillar]# cat /srv/pillar/services/init.sls 
+
+port: 10050
+user: admin
+
+[root@slat-master pillar]# 
+
+刷新pillar的值 
+
+[root@master pillar]# salt '*' saltutil.pillar_refresh   -----> 默认会在pillar的base环境中top.sls  
+
+
+3) 查看刚刚定义的zabbix相关的值 
+
+[root@salt-master services]# salt 'agent1.linux.com' pillar.items
+agent1.linux.com:
+    ----------
+    package-name:
+        zabbix
+    port:
+        10050
+    user:
+        admin
+    version:
+        3.2.2
+
+
+也可以通过# salt '*' pillar.items命令查看 
+
+[root@salt-master services]# salt -I 'port:10050' cmd.run 'hostname'
+node2.linux.com:
+    node2.linux.com
+agent1.linux.com:
+    agent1.linux.com
+
+
+
+SaltStack也支持从外部读取Pillar数据。我们可以把Pillar数据存在数据库或者存储服务器上。
+
+
+
+
+
+
+Module组件  
+
+	Module组件是用于管理对象操作的，也是用的最多的一个组件。通过该组件可以实现对minion端执行命令、查看包安装情况、查看服务情况等
+	
+	这也是SaltStack通过push的方式管理的方式 
+
+1、查看所有模块Modules
+
+[root@slat-master ~]# salt 'agent1.linux.com' sys.list_modules
+agent1.linux.com:
+    - acl
+    - aliases
+    - alternatives
+    - apache
+    - archive
+    - artifactory
+    - at
+    - blockdev
+    - bridge
+    - btrfs
+	....
+
+2、查看某模块支持的方法 
+
+[root@slat-master ~]# salt 'agent1.linux.com' sys.list_functions cmd
+agent1.linux.com:
+    - cmd.exec_code
+    - cmd.exec_code_all
+    - cmd.has_exec
+    - cmd.retcode
+    - cmd.run
+    - cmd.run_all
+    - cmd.run_chroot
+    - cmd.run_stderr
+    - cmd.run_stdout
+    - cmd.script
+
+
+3、查看某模块方法的用法及example
+
+[root@slat-master ~]# salt 'agent1.linux.com' sys.doc cmd.run
+
+官方文档：
+	https://docs.saltstack.com
+	
+	
+	
+
+模块使用示例：
+
+1、network模块 
+
+1) 列出活跃的TCP连接
+
+[root@master ~]# salt 'node1.linux.com' network.active_tcp
+
+2) 显示arp表 
+
+[root@master ~]# salt 'node1.linux.com' network.arp
+
+3) 显示eth0网卡的MAC地址 
+
+[root@master ~]# salt 'node1.linux.com' network.hw_addr eth0
+
+
+4) 显示网卡IP信息及网卡名称 
+
+[root@master ~]# salt 'node1.linux.com' network.interface eth0
+
+5) 获取主机名 
+
+[root@master ~]# salt 'node1.linux.com' network.get_hostname
+
+
+2、service模块
+
+1) 列出服务是否有效
+
+[root@master ~]# salt 'node1.linux.com' service.available sshd
+
+
+2) 显示服务状态 
+
+[root@master ~]# salt 'node1.linux.com' service.status sshd
+
+
+3、state模块 
+
+1) 按top.sls文件中的配置对minion进行配置 
+
+[root@master ~]# salt 'node2.linux.com' state.highstate
+
+2) 针对node2进行apache.sls文件中的配置 
+
+[root@master ~]# salt 'node2.linux.com' state.sls apache
+
+
+4、user模块 
+
+5、file拷贝模块 
+
+6、cron模块 
+
+
+
+
+
+
+States状态组件
+
+	States是SaltStack中的配置语言，在日常进行配置管理时需要编写大量的states文件。
+	比如我们要安装一个软件 ，管理一个配置文件等就需要编写states sls文件来实现该功能，需要注意的是states sls是使用YAML语言编写的，同时也支持使用python语言编写
+	
+	
+1、查看所有states
+
+[root@slat-master ~]# salt 'agent1.linux.com' sys.list_state_modules
+agent1.linux.com:
+    - acl
+    - alias
+    - alternatives
+    - apache
+    - archive
+    - artifactory
+    - at
+    - blockdev
+    - buildout
+    - cloud
+    - cmd
+	.....
+	
+2、查看某states支持的方法
+
+[root@slat-master ~]# salt 'agent1.linux.com' sys.list_state_functions file
+agent1.linux.com:
+    - file.absent
+    - file.accumulated
+    - file.append
+    - file.blockreplace
+    - file.comment
+    - file.copy
+    - file.directory
+    - file.exists
+    - file.managed
+    - file.missing
+    - file.mknod
+    - file.mod_run_check_cmd
+    - file.patch
+    - file.prepend
+	.....
+	
+	
+3、查看某state方法的用法及example
+
+[root@slat-master ~]# salt 'agent1.linux.com' sys.state_doc file.copy
+
+
+使用states的流程：
+	1、编写top.sls文件(管理的入口文件，非必须; 负责指定哪些设备调用哪个states.sls文件)
+	2、编写states.sls文件
+
+在master的配置文件中定义了states sls文件的存放根目录， 如下：
+
+file_roots:
+  base:
+    - /srv/salt
+  dev:
+    - /srv/salt/dev
+
+
+
+示例：编写one.sls文件，对所有minion端下的/tmp/foo.conf进行管理 
+
+[root@slat-master ~]# mkdir /srv/salt
+[root@slat-master ~]# vim /srv/salt/one.sls
+/tmp/foo.conf:									>>>管理的文件名称
+  file.managed:									>>>管理文件使用的state方法
+    - source: salt://files/foo.conf					>>>指定文件内容；salt://为master端的state根目录(即/srv/salt)；
+    - user: root				
+    - group: root
+    - mode: 600
+	
+[root@salt-master ~]# echo "Hello saltStack" > /srv/salt/files/foo.conf
+
+
+[root@slat-master ~]# salt '*' state.sls one
+
+在minion端进行测试：
+
+[root@agent1 ~]# cat /tmp/foo.conf 
+SaltStack test
+
+[root@agent1 ~]# ls -l /tmp/foo.conf
+-rw-------. 1 root root 15 12月 18 13:20 /tmp/foo.conf
+
+
+
+示例2：编写top.sls文件，实现对不同的minion端执行不同的操作 
+
+[root@slat-master salt]# cat /srv/salt/top.sls 
+
+base:
+  'node2.linux.com':
+     - two							>>>>可以是/srv/salt目录下的two.sls，也可以是/srv/salt/two/init.sls 
+  'agent1.linux.com':
+     - three
+
+[root@slat-master salt]# cat /srv/salt/two.sls 
+
+/tmp/1.txt:
+  file.managed:
+    - source: salt://files/foo.conf
+    - user: root
+	
+    - group: root
+    - mode: 600
+	
+[root@slat-master salt]# cat /srv/salt/three.sls 
+
+/tmp/2.txt:
+  file.managed:
+    - source: salt://files/foo.conf
+    - user: root
+    - group: sshd
+    - mode: 666
+
+[root@slat-master salt]# salt '*' state.highstate 			>>>>执行top.sls 
+
+
+示例3：在dev环境下实现LAMP平台的部署 
+
+[root@master dev]# tree /srv/salt/dev/
+/srv/salt/dev/
+├── files
+│   ├── httpd.conf
+│   ├── index.php
+│   └── my.cnf
+└── lamp.sls
+
+lamp-software-install:
+  pkg.installed:
+    - names:
+      - httpd
+      - mariadb-server
+      - php
+      - php-gd
+      - gd
+      - php-mysql
+
+http-config-file:
+  file.managed:
+    - name: /etc/httpd/conf/httpd.conf
+    - source: salt://files/httpd.conf
+    - user: root
+    - group: root
+    - mode: 644
+
+http-service:
+  service.running:
+    - name: httpd
+    - enable: True
+
+mysql-config-file:
+  file.managed:
+    - name: /etc/my.cnf
+    - source: salt://files/my.cnf
+    - user: root
+    - group: root
+    - mode: 644
+
+mysql-service:
+  service.running:
+    - name: mariadb
+    - enable: True
+
+php-test-page:
+  file.managed:
+    - name: /var/www/html/a.php
+    - source: salt://files/a.php
+
+
+测试单台机器运行：
+
+[root@master dev]# salt 'node1.linux.com' state.sls lamp env=dev
+
+编辑top.sls文件运行 
+
+[root@master dev]# cat /srv/salt/top.sls 
+
+dev:
+  'node2.linux.com':
+    - lamp
+[root@master dev]# 
+[root@master dev]# salt '*' state.highstate	
+	
+	
+	
+YAML语言的编写技巧：
+
+	1、缩进
+		YAML语言的缩进由两个空格组成 ，注意不要使用tab
+		
+	2、以冒号分隔键值对
+	
+		key: value 
+		
+		key:
+		   - value1
+		   - value2
+		   - value3
+
+
+
+		   
+示例02：部署虚拟主机
+
+		   
+[root@salt-master dev]# cat httpd_vhost.sls 
+create web datadir:
+     file.directory:
+        - name: /a.org
+        - user: root
+        - group: root
+        - mode: 755   
+
+/etc/httpd/conf.d/web_A.conf:
+    apache.configfile:
+       - config:
+          - VirtualHost:
+               this: '*:80'
+               ServerName:
+                  - www.a.org
+               ErrorLog: /var/log/httpd/web_A.error_log
+               CustomLog: /var/log/httpd/web_A.access_log combind
+               DocumentRoot: /a.org
+               Directory:
+                  this: /a.org
+                  Require: all granted
+
+restart httpd service:
+    cmd.run:
+      - name: systemctl restart httpd
+	   
+		   
+	
+
+			
+资源的依赖关系配置 
+
+1、unless 
+
+	主要用于cmd状态模块，仅当unless选项指向的命令返回false时，才执行name执行的命令 
+	
+2、require
+
+	我依赖某个资源状态
+	
+3、 require_in
+
+	我被某个状态依赖
+	
+4、watch
+
+	我关注某个状态
+	
+5、watch_in
+	
+	我被某个状态关注
+			
+
+示例： 
+
+http-service:
+  service.running:
+    - name: httpd
+    - enable: True
+    - reload: True
+    - watch:
+      - file: http-config-file
+    - require:
+      - pkg: lamp-software-install
+      - file: http-config-file
+
+
+示例：unless应用
+
+
+[root@salt-master dev]# cat zabbix_agent.sls 
+/etc/yum.repos.d/zabbix.repo:
+    file.managed:
+      - source: salt://files/zabbix.repo
+       
+
+install zabbix-agent:
+    cmd.run:
+       - name: yum install -y zabbix-agent
+       - unless: rpm -q zabbix-agent
+       - require:
+          - file: /etc/yum.repos.d/zabbix.repo
+
+
+
+
+示例： 部署源码nginx 
+
+[root@salt-master dev]# tree /srv/salt/dev/
+
+/srv/salt/dev/
+├── files
+│   ├── a.php
+│   ├── httpd.conf
+│   ├── my.cnf
+│   ├── nginx-1.11.10.tar.gz
+│   └── nginx.conf
+├── lamp.sls
+└── nginx.sls
+
+
+
+
+[root@salt-master dev]# cat nginx.sls 
+
+nginx-software:
+  file.managed:
+    - name: /tmp/nginx-1.11.10.tar.gz
+    - source: salt://files/nginx-1.11.10.tar.gz
+
+nginx-user:
+  user.present:
+    - name: nginx
+
+nginx-depen-pkg:
+  pkg.installed:
+    - names:
+      - gcc
+      - openssl-devel
+      - pcre-devel
+
+nginx-extract:
+  cmd.run:
+    - cwd: /tmp
+    - name: tar zxf nginx-1.11.10.tar.gz
+
+
+nginx-compile:
+  cmd.run:
+    - cwd: /tmp/nginx-1.11.10
+    - name: ./configure --prefix=/usr/local/nginx --user=nginx --group=nginx && make && make install
+    - require:
+      - pkg: nginx-depen-pkg
+      - user: nginx-user
+      - cmd: nginx-extract
+
+nginx-config-file:
+  file.managed:
+    - name: /usr/local/nginx/conf/nginx.conf
+    - source: salt://files/nginx.conf
+    - require:
+      - cmd: nginx-compile
+
+nginx-start:
+  cmd.run:
+    - name: /usr/local/nginx/sbin/nginx
+    - require:
+      - cmd: nginx-compile
+    - reload: True
+
+[root@salt-master dev]# 
+
+
+
+
+
+Jinja模板的使用 
+
+	支持在文件模板中使用变量，在sls状态文件中通过给变量赋值的方式，以增加配置的灵活性 
+	
+	在文件模板中使用变量时，采用{{ 变量 }}的方式 
+	
+例如，在之前httpd.conf配置文件模板中将监听的端口设置为变量的方式如下：
+
+[root@master dev]# vim /srv/salt/dev/files/httpd.conf 
+
+		Listen {{ HTTP_PORT }}
+		
+在对应的sls状态文件中，给变量赋值 
+
+[root@master dev]# vim /srv/salt/dev/lamp.sls 
+...
+apache-service:
+  file.managed:
+    - name: /etc/httpd/conf/httpd.conf
+    - source: salt://files/httpd.conf
+    - user: root
+    - group: root
+    - mode: 644
+    - template: jinja				>>>>指定文件类型为jinja模板
+    - defaults:						>>>>设置变量的值  
+      HTTP_PORT: 6666
+....
+
+
+也可以通过获取到的Grains值为变量赋值，例如：
+
+[root@master dev]# vim /srv/salt/dev/files/httpd.conf 
+
+		Listen {{ IPADDR }}:{{ HTTP_PORT }}
+
+[root@master dev]# vim /srv/salt/dev/lamp.sls 
+...
+apache-service:
+  file.managed:
+    - name: /etc/httpd/conf/httpd.conf
+    - source: salt://files/httpd.conf
+    - user: root
+    - group: root
+    - mode: 644
+    - template: jinja				>>>>指定文件类型为jinja模板
+    - defaults:						>>>>设置变量的值  
+	  IPADDR: {{ grains['ipv4'][1] }}
+      HTTP_PORT: 6666
+....
+			
+
+
+使用pillar值为jinja模板中变量赋值 
+
+1) 为minion端定义pillar值 
+
+[root@salt-master pillar]# pwd
+/srv/pillar
+
+[root@salt-master pillar]# cat top.sls 
+base:
+  '*':
+    - http
+[root@salt-master pillar]# cat http.sls 
+IP: {{ grains['ipv4'][1] }}
+PORT: 2222
+
+
+[root@master dev]# salt '*' saltutil.pillar_refresh
+
+[root@master dev]# salt '*' pillar.items
+
+	  
+
+2) 在sls状态文件中使用pillar值 
+
+    - defaults:
+      host_ip: {{ pillar['IP'] }}
+      http_port: {{ pillar['PORT'] }}
+
+
+			
+定义pillar值时使用条件判断 
+
+[root@salt-master pillar]# cat var.sls 
+
+IP: {{ grains["ipv4"][1] }}
+{% if grains["ipv4"][1] == "192.168.122.102" %}
+PORT: 2222
+{% elif grains["ipv4"][1] == "192.168.122.103" %}
+PORT: 3333
+{% endif %}
+			
+			
+在sls状态文件中使用条件判断 
+
+[root@salt-master salt]# cat db.sls 
+install mysql db:
+  pkg.installed:
+    {% if grains["osrelease"] == "6.6" %}
+    - name: mysql-server
+    {% elif grains["osrelease"] == "7.2.1511" %}
+    - name: mariadb-server
+    {% endif %}
+
+
+	
+	
+	
+	
+SaltStack案例
+
+
+配置sls文件存放路径，这里配置了两个
+
+# vim /etc/salt/master 
+
+file_roots:
+  base:
+    - /srv/salt/base
+  prod:
+    - /srv/salt/prod
+
+# mkdir -pv /srv/salt/{base,prod}
+# /etc/init.d/slat-master restart 
+
+1、配置history记录命令的执行时间和用户
+
+[root@slat-master ~]# cat /srv/salt/base/init/history.sls 
+/etc/profile:
+  file.append:
+    - text:
+      - export HISTTIMEFORMAT="%F %T `whoami` "
+
+[root@slat-master ~]# salt '*' state.sls init/history
+	
+	
+2、执行命令
+
+[root@slat-master init]# cat test.sls 
+test command:
+  cmd.run:
+    - name: touch /tmp/bb.txt	
+	
+	
+3、配置本地yum源
+
+[root@slat-master init]# cat repo.sls 
+mount cdrom:
+  cmd.run:
+    - name: mount /dev/cdrom /mnt &> /dev/null
+
+/etc/yum.repos.d/local.repo:
+  file.managed:
+    - source: salt://local.repo
+    - user: root
+    - group: root
+[root@slat-master i
+	
+
+4、管理软件 
+
+[root@slat-master init]# cat pkg.sls 
+dhcp:
+  pkg.installed
+ 
+[root@slat-master init]# cat a.sls 
+dhcp:
+  pkg.removed
+	
+	
+5、管理用户和组
+
+[root@slat-master init]# cat user.sls 
+user1:
+  user.present:
+    - fullname: test user1
+    - shell: /bin/bash
+    - home: /home/user1
+    - uid: 1000
+user2:
+  user.present:
+    - fullname: test user2
+    - shell: /bin/bash
+    - home: /home/user2
+    - uid: 1001
+caiwu:
+  group.present:
+    - gid: 1002
+    - addusers:
+      - user1
+      - user2
+[root@slat-master init]# 	
+	
+
+6、计划任务管理
+
+[root@slat-master init]# cat cron.sls 
+sync time:
+  cron.present:
+    - name: /usr/sbin/ntpdate 172.16.8.100 &> /dev/null
+    - minute: 00
+    - hour: 23
+    - daymonth: 10
+    - user: root
+[root@slat-master init]# 	
+	
+	
+7、服务控制 
+
+[root@slat-master init]# cat httpd.sls 
+start http:
+  service.running:
+    - name: httpd
+    - enable: False
+[root@slat-master init]# 	
+	
+	
+8、执行脚本
+
+[root@slat-master init]# cat script.sls 
+run shell script:
+  cmd.script:
+    - source: salt://a.sh
+    - shell: /bin/bash
+    - user: root
+[root@slat-master init]# 	
+	
+	
+9、网络管理
+
+[root@slat-master init]# cat network.sls 
+config ip:
+  network.managed:
+    - name: eth0:0
+    - enabled: True
+    - type: eth
+    - proto: none
+    - ipaddr: 1.1.1.1
+    - netmask: 255.0.0.0
+    - dns: 
+      - 8.8.8.8
+      - 4.4.4.4	
+	
+	
+10、部署nginx(rpm软件)
+
+[root@slat-master init]# cat nginx.sls 
+/etc/yum.repos.d/nginx.repo:
+  file.managed:
+    - source: salt://nginx.repo
+
+nginx-install:
+  pkg.installed:
+    - name: nginx
+
+nginx service:
+  service.running:
+    - enable: True
+    - name: nginx
+    - reload: True
+    - watch:
+      - pkg: nginx
+      - file: /etc/nginx/nginx.conf
+
+/etc/nginx/nginx.conf:
+  file.managed:
+    - source: salt://nginx.conf
+    - user: root
+    - group: root
+    - mode: 644
+	
+
+
+	
+	
+	
+	
+	
+	
+	
+	
+	
+return组件 
+
+	return组件支持minion端执行命令后将执行结果返回给某应用程序进行保存，这样将来对执行结果可进行审计分析  
+	
+	return组件支持的对结果进行的存储方式有多种，如syslog, mysql, redis, mongodb等
+	
+	可通过如下指令查看 returners支持的存储方式：
+	
+	[root@slat-master ~]# salt 'agent1.linux.com' sys.list_returners
+	agent1.linux.com:
+    - carbon
+    - couchdb
+    - etcd
+    - hipchat
+    - local
+    - local_cache
+    - multi_returner
+    - slack
+    - smtp
+    - sqlite3
+    - syslog
+	
+	
+示例：通过return实现所有minion将执行结果保存到系统日志
+
+[root@salt-master ~]# salt 'agent01.linux.com' cmd.run 'uptime' --return syslog
+agent01.linux.com:
+     16:01:49 up  6:21,  1 user,  load average: 0.00, 0.01, 0.05
+
+	
+在minion端查看日志可发现如下信息
+
+[root@agent1 ~]# tail /var/log/messages
+
+Dec 18 13:53:52 agent1 python2.6: {"fun_args": ["hostname"], "jid": "20161218135254353019", "return": "agent1.linux.com", "retcode": 0, "success": true, "fun": "cmd.run", "id": "agent1.linux.com"}
+
+
+
+示例：通过return将执行结果保存到MySQL数据库 
+
+1) 在master端安装MySQL数据库，并建立相应的库表结构及授权用户 
+
+[root@salt-master ~]# yum install -y mariadb-server
+
+[root@salt-master ~]# systemctl start mariadb
+[root@salt-master ~]# systemctl enable mariadb
+
+
+以下是建立库表结构的语句[官网复制]
+
+<----
+
+CREATE DATABASE  `salt`
+  DEFAULT CHARACTER SET utf8
+  DEFAULT COLLATE utf8_general_ci;
+
+USE `salt`;
+
+--
+-- Table structure for table `jids`
+--
+
+DROP TABLE IF EXISTS `jids`;
+CREATE TABLE `jids` (
+  `jid` varchar(255) NOT NULL,
+  `load` mediumtext NOT NULL,
+  UNIQUE KEY `jid` (`jid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+CREATE INDEX jid ON jids(jid) USING BTREE;
+
+--
+-- Table structure for table `salt_returns`
+--
+
+DROP TABLE IF EXISTS `salt_returns`;
+CREATE TABLE `salt_returns` (
+  `fun` varchar(50) NOT NULL,
+  `jid` varchar(255) NOT NULL,
+  `return` mediumtext NOT NULL,
+  `id` varchar(255) NOT NULL,
+  `success` varchar(10) NOT NULL,
+  `full_ret` mediumtext NOT NULL,
+  `alter_time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY `id` (`id`),
+  KEY `jid` (`jid`),
+  KEY `fun` (`fun`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+--
+-- Table structure for table `salt_events`
+--
+
+DROP TABLE IF EXISTS `salt_events`;
+CREATE TABLE `salt_events` (
+`id` BIGINT NOT NULL AUTO_INCREMENT,
+`tag` varchar(255) NOT NULL,
+`data` mediumtext NOT NULL,
+`alter_time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+`master_id` varchar(255) NOT NULL,
+PRIMARY KEY (`id`),
+KEY `tag` (`tag`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+---->
+
+MariaDB [(none)]> GRANT all ON salt.* TO 'saltuser'@'salt-master.linux.com' IDENTIFIED BY 'redhat';
+
+
+MariaDB [(none)]> FLUSH PRIVILEGES;
+
+
+
+
+2) 在master及所有minion端安装python连接数据库的驱动
+
+[root@master ~]# yum install -y MySQL-python
+
+[root@node1 ~]# yum install -y MySQL-python
+
+
+3) 编辑master配置文件，添加连接数据库的信息 
+
+# vim /etc/salt/master  
+
+mysql.host: 'salt-master.linux.com'
+mysql.user: 'salt'
+mysql.pass: 'salt'
+mysql.db: 'salt'
+mysql.port: 3306
+master_job_cache: mysql
+
+[root@salt-master ~]# systemctl restart salt-master
+ 
+
+
+4) 测试 
+
+[root@salt-master ~]# salt 'agent01.linux.com' cmd.run 'uptime' --return mysql
+
+
+登录数据库，可查看到如下信息表示成功
+
+mysql> SELECT * FROM salt_returns\G;
+*************************** 1. row ***************************
+       fun: test.ping
+       jid: 20170223062700547358
+    return: true
+        id: node2.linux.com
+   success: 1
+  full_ret: {"fun_args": [], "jid": "20170223062700547358", "return": true, "retcode": 0, "success": true, "cmd": "_return", "_stamp": "2017-02-22T22:27:00.645838", "fun": "test.ping", "id": "node2.linux.com"}
+alter_time: 2017-02-23 06:27:00
+
+
+
+
+
+
+
+
+
+
+
+job管理
+
+	在SaltStack里面执行任何一个操作都会在Master上产生一个jid号。Minion端会在cache目录的proc目录创建一个以jid为名的文件，这个文件里面的内容就是此次操作的记录，当操作处理完成后该文件会自动删除。
+	而Master端会记录每次操作的，这个记录都是存到Master端cache目录下的jobs目录下。
+	
+	目前SaltStack提供对job的管理方式有两种，分别是使用salt-run命令及modules模块的方式
+
+
+1) 显示正在执行的job
+
+[root@slat-master jobs]# salt 'agent1.linux.com' cmd.run 'sleep 100; hostname'
+[root@slat-master ~]# salt-run jobs.active
+
+	
+	
+方法2：使用saltutil模块管理job 
+
+1) 查看 saltutil的使用帮助
+
+[root@slat-master jobs]# salt 'agent1.linux.com' sys.doc saltutil | grep job	
+	
+示例：结束一个正在执行的job
+
+[root@slat-master ~]#  salt '*' saltutil.signal_job 20161218142228027806 15
+agent1.linux.com:
+    Signal 15 sent to job 20161218142228027806 at pid 4501
+node2.linux.com:	
+	
+	
+	
+	
+
+
+	
+	
+	
+SaltStack syndic部署
+
+	当minion过多时，所有的minion都要联系master索取配置，此时会造成master负载过大、效率降低；此时可在master和minion间引入代理，master向不同的代理传输指令，由代理将指令分发到不同的minion上执行，minion执行完毕后将结果给返回代理，再由代理将结果返回给master。 
+	syndic就是用于实现saltstack代理的功能
+	
+示例： 
+
+	环境描述 ：
+		192.168.122.101    salt-master.linux.com  	master服务器
+		192.168.122.102    agent1.linux.com    		minion  
+		192.168.122.103    node2.linux.com    	 	minion 
+		192.168.122.104    syndic.linux.com      	syndic代理 
+		
+1) 在master端删除所有minion证书信息
+
+[root@slat-master ~]# salt-key -D -y
+Deleting the following keys:
+Accepted Keys:
+agent1.linux.com
+node2.linux.com
+Key for minion agent1.linux.com deleted.
+Key for minion node2.linux.com deleted.
+
+[root@slat-master ~]# salt-key -L
+Accepted Keys:
+Denied Keys:
+Unaccepted Keys:
+Rejected Keys:
+
+2) 安装配置syncdic
+
+[root@syndic ~]# yum install -y salt-syndic
+
+[root@syndic ~]# vim /etc/salt/master 
+
+	order_masters: True								>>>启用转发master指令的功能
+	syndic_master: 192.168.122.101					>>>>指向master地址
+
+[root@syndic ~]# systemctl start salt-master
+[root@syndic ~]# systemctl enable salt-master
+
+[root@syndic ~]# systemctl start salt-syndic
+[root@syndic ~]# systemctl enable salt-syndic
+
+	
+	
+3) 修改minion端配置
+
+(1) 删除原有master的证书信息
+
+[root@agent1 minion]# cd /etc/salt/
+[root@agent1 salt]# rm -rf pki/	
+	
+(2) 编辑minion配置文件
+
+[root@node02 salt]# vim /etc/salt/minion
+	master: 192.168.122.104
+
+[root@node02 salt]# systemctl restart salt-minion
+
+
+另外一台minion采用同样的配置
+
+
+4) 	在master上签发syndic的证书
+	
+[root@slat-master ~]# salt-key -L
+Accepted Keys:
+Denied Keys:
+Unaccepted Keys:
+syndic.linux.com
+Rejected Keys:
+
+[root@slat-master ~]# salt-key -A -y
+The following keys are going to be accepted:
+Unaccepted Keys:
+syndic.linux.com
+Key for minion syndic.linux.com accepted.
+
+[root@slat-master ~]# salt-key -L
+Accepted Keys:
+syndic.linux.com
+Denied Keys:
+Unaccepted Keys:
+Rejected Keys:
+	
+
+5) 在syndic代理上签发所有minion的证书
+
+[root@syndic ~]# salt-key -L
+Accepted Keys:
+Denied Keys:
+Unaccepted Keys:
+agent1.linux.com
+node2.linux.com
+Rejected Keys:
+
+[root@syndic ~]# salt-key -A -y
+The following keys are going to be accepted:
+Unaccepted Keys:
+agent1.linux.com
+node2.linux.com
+Key for minion agent1.linux.com accepted.
+Key for minion node2.linux.com accepted.
+
+[root@syndic ~]# salt-key -L
+Accepted Keys:
+agent1.linux.com
+node2.linux.com
+Denied Keys:
+Unaccepted Keys:
+Rejected Keys:
+[root@syndic ~]# 
+
+
+6) 测试，在master上执行命令 
+
+[root@slat-master ~]# salt '*' cmd.run 'hostname'
+node2.linux.com:
+    node2.linux.com
+agent1.linux.com:
+    agent1.linux.com
+	
+从以上结果可以看出，master管控的虽然是syndic，但返回的结果仍然是minion的结果
+
+
+
+
+syndic代理默认可以转发指令，但不能转发sls状态文件，如果要在有代理的环境执行状态文件，需要在代理服务器上相同的环境目录下存放状态文件
+
+
